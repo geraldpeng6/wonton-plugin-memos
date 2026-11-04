@@ -2,8 +2,8 @@
 # shellcheck shell=bash
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# 开发环境：compose 文件、密钥、数据，都不提交（.gitignore）。
-state="$root/.wonton"
+# 开发环境：compose 文件、密钥、数据，都不提交（.gitignore）。WONTON_DEV_STATE 给冒烟用另一份目录。
+state="${WONTON_DEV_STATE:-$root/.wonton}"
 env_file="$state/.env"
 # 没有开发环境时，检查和打包用这个核心镜像。
 default_image="ghcr.io/geraldpeng6/wonton-core:beta"

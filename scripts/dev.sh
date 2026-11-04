@@ -9,7 +9,13 @@
 #   scripts/dev.sh status                     开发环境的服务和装着的插件
 #   scripts/dev.sh logs [<服务>]              跟着看核心的日志；给了插件的服务名就看那个服务的
 #   scripts/dev.sh token                      主人令牌：浏览器登录和调接口都用它
-#   scripts/dev.sh web [<路径> [<curl 参数>…]] 以主人的身份请求插件网页上的地址（默认 /）：没有浏览器时验证网页和接口
+#   scripts/dev.sh session [--new]            建立主人会话（--new 重建），cookie 存在 .wonton/session.cookies
+#   scripts/dev.sh web [--jar <文件>] [--fresh] [<路径> [<curl 参数>…]]
+#                                             以主人的身份请求插件网页上的地址（默认 /），默认沿用 session 的 cookie：
+#                                             没有浏览器时验证网页，也能带着同一个会话走完应用自己的登录链
+#   scripts/dev.sh mcp list                   Bot 经 MCP 总线能调到的工具（JSON）
+#   scripts/dev.sh mcp call <工具> [<JSON>]   经 MCP 总线调用工具，参数是 JSON 对象，默认 {}
+#   scripts/dev.sh smoke                      对工作区的插件跑合并前的端到端冒烟：起一套一次性实例，跑完清理
 #   scripts/dev.sh pair                       在终端里出配对二维码，给 App 用
 #   scripts/dev.sh down                       停下核心，数据都留着；插件的容器由核心管，照常运行
 #   scripts/dev.sh purge                      删掉整个开发环境：插件的容器、网络、卷和 .wonton/
@@ -72,6 +78,7 @@ first_settings() {
   fi
   source="${WONTON_CORE_IMAGE:-$default_image}"
   pull="${WONTON_PULL:-}"
+  owner_email="${WONTON_OWNER_EMAIL:-owner@$instance.wonton.localhost}"
 }
 
 load_settings() {
@@ -79,6 +86,8 @@ load_settings() {
   port="$(setting WONTON_PORT)"
   source="$(setting WONTON_CORE_SOURCE)"
   pull="${WONTON_PULL:-$(setting WONTON_PULL)}"
+  owner_email="$(setting WONTON_OWNER_EMAIL)"
+  [[ -n "$owner_email" ]] || owner_email="owner@$instance.wonton.localhost"
 }
 
 write_settings() {
@@ -98,6 +107,7 @@ WONTON_PORT=$port
 WONTON_TUNNEL_PORT=$((port + 1))
 WONTON_INSTALL_DIR=$state
 WONTON_DATA_DIR=$state/data
+WONTON_OWNER_EMAIL=$owner_email
 WONTON_PUID=$(id -u)
 WONTON_PGID=$(id -g)
 EOF
@@ -304,17 +314,10 @@ logs() {
   docker logs -f --tail 200 "wonton-$instance--${id//./-}--$1"
 }
 
-# 先用主人令牌登录核心，再走一遍网页的登录跳转（/_wonton/sso → /_wonton/session）拿到插件网页的会话，最后带着它
-# 请求要的地址，其余参数原样交给 curl。没登录的非网页请求网关回 401、不跳转，所以拿会话那一步要 Accept: text/html。
-web() {
-  local path="${1:-/}" owner id list url jar
-  [[ "$path" == /* ]] || usage
-  need_env
-  owner="$(token)"
-  id="$(plugin_id)"
+plugin_web_url() {
+  local id="$1" list
   list="$(api GET /_wonton/api/plugins)" || die "列不出插件：$(error_text "$list")"
-  url="$(
-    python3 - "$list" "$id" <<'PY'
+  python3 - "$list" "$id" <<'PY'
 import json, sys
 plugin = next((p for p in json.loads(sys.argv[1])["plugins"] if p["id"] == sys.argv[2]), None)
 if plugin is None:
@@ -323,15 +326,75 @@ if not plugin.get("web_url"):
     sys.exit(f"{sys.argv[2]} 没有网页入口（清单里没写 webui）")
 print(plugin["web_url"])
 PY
-  )"
-  tmp="$(mktemp -d "$state/tmp.XXXXXX")"
-  trap 'rm -rf "$tmp"' EXIT
-  jar="$tmp/cookies"
+}
+
+session_jar() {
+  echo "${WONTON_DEV_JAR:-$state/session.cookies}"
+}
+
+# 登进核心，再走一遍插件网页的登录跳转，拿到插件网页的会话。cookie 留在文件里给后面的请求（含应用自己的登录链）复用。
+session_into() {
+  local jar="$1" new="$2" owner url
+  mkdir -p "$(dirname "$jar")"
+  [[ -n "$new" ]] && rm -f "$jar"
+  [[ -f "$jar" ]] && return 0
+  owner="$(token)"
+  url="$(plugin_web_url "$(plugin_id)")"
   curl -sS --noproxy '*' --fail-with-body -o /dev/null -c "$jar" --data-urlencode "token=$owner" \
     "$base_url/_wonton/login" || die "主人令牌登录不了核心"
   curl -sS --noproxy '*' -o /dev/null -L -b "$jar" -c "$jar" -H 'Accept: text/html' "$url/" ||
     die "走不通插件网页的登录跳转"
-  curl -sS --noproxy '*' --fail-with-body -b "$jar" "${@:2}" "$url$path"
+}
+
+session() {
+  local new=""
+  case "${1:-}" in
+    '') ;;
+    --new) new=1 ;;
+    *) usage ;;
+  esac
+  need_env
+  session_into "$(session_jar)" "$new"
+  echo "$(session_jar)"
+}
+
+# 带主人会话请求插件网页，其余参数原样交给 curl。没登录的非网页请求网关回 401、不跳转，所以登录那一步要 Accept: text/html。
+web() {
+  local path="/" jar fresh=""
+  jar="$(session_jar)"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --jar) [[ $# -ge 2 ]] || usage; jar="$2"; shift 2 ;;
+      --fresh) fresh=1; shift ;;
+      /*) path="$1"; shift; break ;;
+      *) usage ;;
+    esac
+  done
+  need_env
+  [[ "$path" == /* ]] || usage
+  session_into "$jar" "$fresh"
+  local url
+  url="$(plugin_web_url "$(plugin_id)")"
+  curl -sS --noproxy '*' --fail-with-body -b "$jar" -c "$jar" "$@" "$url$path"
+}
+
+# MCP 客户端在 Hermes gateway 容器里跑：那里有 WONTON_MCP_URL 和官方 SDK（python3）。
+mcp() {
+  local sub="${1:-}" gw url
+  need_env
+  gw="wonton-$instance--com-nousresearch-hermes--gateway"
+  docker container inspect "$gw" >/dev/null 2>&1 ||
+    die "没有 Hermes gateway 容器（$gw）：先 scripts/dev.sh install 装上 Hermes"
+  url="$(docker exec "$gw" printenv WONTON_MCP_URL 2>/dev/null)" || true
+  [[ -n "$url" ]] || die "gateway 容器里没有 WONTON_MCP_URL：它的清单没申请 tools？"
+  case "$sub" in
+    list) docker exec -i "$gw" python3 - list "$url" <"$root/scripts/mcp_client.py" ;;
+    call)
+      [[ -n "${2:-}" ]] || usage
+      docker exec -i "$gw" python3 - call "$url" "$2" "${3:-{\}}" <"$root/scripts/mcp_client.py"
+      ;;
+    *) usage ;;
+  esac
 }
 
 pair() {
@@ -371,6 +434,9 @@ case "${1:-}" in
     token
     ;;
   web) web "${@:2}" ;;
+  session) session "${@:2}" ;;
+  mcp) mcp "${@:2}" ;;
+  smoke) "$root/scripts/smoke.sh" "${@:2}" ;;
   pair) pair ;;
   down)
     need_env
