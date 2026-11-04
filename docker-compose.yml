@@ -95,7 +95,7 @@ configs:
 x-wonton:
   spec: "0.4"
   id: com.usememos.memos
-  version: 0.1.1
+  version: 0.1.2
   kind: app
   title: { en: Memos }
   description:
@@ -119,11 +119,15 @@ x-wonton:
       随手记笔记、写日记、列待办，打上标签，之后全文搜索。默认只有你看得到，也可以逐条公开或按链接分享。
 
       Bot 也能搜、能新建和追加笔记，看到的就是你自己看得到的。
+
+      需要访问外网：Webhook 推送、链接预览和 AI 语音转写都得出网才能用，笔记本身不受影响。
     en: |
       Jot down notes, keep a journal, list todos, tag them and search everything later. Notes stay private by default; you can make one public or share it by link.
 
       The bot can search, create and append notes, and sees exactly what you see.
-  release_notes: { zh: 名字和说明更新。, en: Product name and description update. }
+
+      Needs internet access: webhooks, link previews and AI speech-to-text all reach the network; notes work offline.
+  release_notes: { zh: "加了出网权限：Webhook 推送、链接预览和 AI 语音转写都要访问外网。", en: "Added network access permission: webhooks, link previews and AI speech-to-text need it." }
   webui:
     service: memos
     port: 5230
@@ -139,6 +143,8 @@ x-wonton:
       generate: { bytes: 32 }
   permissions:
     - owner.identity
+    # Webhook 推送、链接预览、AI 语音转写都要从容器里访问外网；插件内部互访核心已放进 NO_PROXY。
+    - network.egress
   # 上游没写最低内存；本机空闲实测约 49M，取 128M。镜像支持 amd64 和 arm64（docker manifest inspect）。
   requirements:
     arch: [amd64, arm64]
