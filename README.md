@@ -46,6 +46,7 @@ scripts/dev.sh install
 | `screenshots/` | 商店详情页里的截图 |
 | `scripts/check.sh` | 检查插件包，规则和安装时一样 |
 | `scripts/dev.sh` | 开发环境：起一套云吞，装、重装、卸载插件，看日志 |
+| `scripts/smoke-probes.sh` | `scripts/dev.sh smoke` 对这个插件逐项的探测 |
 | `scripts/publish.sh` | 发布一个版本：构建自己的镜像、按摘要写回、打 tag、推送 |
 | `AGENTS.md` | 给人和 AI 编程代理的规则 |
 | `.wonton/` | 开发环境的设置、密钥和数据，不提交 |
@@ -301,10 +302,17 @@ x-wonton:
 | `scripts/dev.sh status` | 开发环境的服务和装着的插件 |
 | `scripts/dev.sh logs [<服务>]` | 跟着看核心的日志；给了插件的服务名就看那个服务的 |
 | `scripts/dev.sh token` | 主人令牌 |
-| `scripts/dev.sh web [<路径> [<curl 参数>…]]` | 以主人的身份请求插件网页上的地址（默认 `/`），其余参数交给 curl：没有浏览器时验证网页和接口 |
+| `scripts/dev.sh web [--jar <文件>] [--fresh] [<路径> [<curl 参数>…]]` | 以主人的身份请求插件网页上的地址（默认 `/`），其余参数交给 curl：没有浏览器时验证网页和接口。默认沿用 `session` 的会话，能带着它走完应用自己的登录链 |
+| `scripts/dev.sh session [--new]` | 建立（`--new` 重建）主人会话，cookie 留在 `.wonton/session.cookies` |
+| `scripts/dev.sh mcp list` | Bot 经 MCP 总线能调到的工具（JSON） |
+| `scripts/dev.sh mcp call <工具> [<JSON>]` | 经 MCP 总线调用工具，参数是 JSON 对象，默认 `{}` |
+| `scripts/dev.sh smoke` | 合并前的端到端冒烟：装得上、网页打得开、主人身份能用、工具 Bot 调得到，任何 FAIL 退出非 0 |
 | `scripts/dev.sh pair` | 终端里出配对二维码，App 扫码连上这套开发环境 |
 | `scripts/dev.sh down` | 停下，数据都留着 |
 | `scripts/dev.sh purge` | 删掉整个开发环境 |
+
+`smoke` 把工作区复制到临时目录，起一套以 `smoke` 开头的一次性实例，四项都跑真实请求，跑完删掉容器、网络、卷和目录，
+不动已有的 `.wonton`。插件自己的探测在 `scripts/smoke-probes.sh`。要用出口代理时设 `WONTON_DEV_EGRESS_PROXY=http://…`。
 
 开发环境和正式安装用同一份 compose（核心、身份提供方 Ory Hydra、Matrix 服务器 Tuwunel），只是项目名、核心的容器名
 和实例名不同；核心起来后同样预装模型网关 magpie（`ai.usemagpie.magpie`）。第一次 `up` 时定下设置，写在 `.wonton/.env`：
@@ -400,6 +408,6 @@ scripts/check.sh
 
 ## 规则以哪里为准
 
-这里写的是[插件规范](https://github.com/geraldpeng6/wonton/blob/main/docs/plugin-spec.md) `x-wonton` v0.2 里写插件
+这里写的是[插件规范](https://github.com/geraldpeng6/wonton-docs/blob/main/plugin-spec.md) `x-wonton` v0.2 里写插件
 要知道的部分，完整的规则和理由在规范里。规范和核心一起演进；说法对不上时以核心的检查为准：`scripts/check.sh` 通过、
 `scripts/dev.sh install` 装得上，插件包才算写对了。
