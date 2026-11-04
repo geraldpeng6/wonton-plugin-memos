@@ -1,0 +1,152 @@
+name: memos
+
+services:
+  # 以非 root 跑 Memos，数据目录归主人。旧版本或外部改过的数据可能是别的属主，先统一成运行用户；
+  # 每次创建容器都跑一遍，幂等。
+  chown:
+    image: neosmemo/memos:26.11.0@sha256:087e7dc6b76b31fcd1107a5767398b2a310ced209adb791efd8760c745dc8034
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c", "chown -R ${PUID}:${PGID} /var/opt/memos"]
+    volumes:
+      - ${WONTON_APP_DATA}/data:/var/opt/memos
+    network_mode: none
+    restart: "no"
+
+  memos:
+    user: "${PUID}:${PGID}"
+    depends_on:
+      chown:
+        condition: service_completed_successfully
+    image: neosmemo/memos:26.11.0@sha256:087e7dc6b76b31fcd1107a5767398b2a310ced209adb791efd8760c745dc8034
+    environment:
+      MEMOS_INSTANCE_URL: ${WONTON_APP_URL}
+      MEMOS_PORT: "5230"
+      # 声明式配置只引用变量名，值由核心注入。
+      WONTON_OWNER_NAME: ${WONTON_OWNER_NAME}
+      # 声明式配置里的 ${env:…} 必须占满整个值，资源名这类拼起来的串在这里拼好。
+      MEMOS_CONFIG_USER_NAME: "users/${WONTON_OWNER_NAME}"
+      MEMOS_CONFIG_LINKED_NAME: "users/${WONTON_OWNER_NAME}/linkedIdentities/wonton"
+      WONTON_OWNER_EMAIL: ${WONTON_OWNER_EMAIL}
+      WONTON_OIDC_CLIENT_ID: ${WONTON_OIDC_CLIENT_ID}
+      WONTON_OIDC_CLIENT_SECRET: ${WONTON_OIDC_CLIENT_SECRET}
+      WONTON_OIDC_AUTH_URL: ${WONTON_OIDC_AUTH_URL}
+      WONTON_OIDC_TOKEN_URL: ${WONTON_OIDC_TOKEN_URL}
+      WONTON_OIDC_USERINFO_URL: ${WONTON_OIDC_USERINFO_URL}
+      WONTON_SECRET_OWNER_PASSWORD: ${WONTON_SECRET_OWNER_PASSWORD}
+    volumes:
+      - ${WONTON_APP_DATA}/data:/var/opt/memos
+    configs:
+      - source: config
+        target: /etc/memos/config/wonton.json
+    healthcheck:
+      # 数据库在 /healthz 里被探活；配置应用失败时进程起不来，这里也失败。
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:5230/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+      start_interval: 1s
+
+  # 一次性服务：主人账号和 MCP 令牌都来自 Memos 自己的接口，MCP 需要带令牌才能调工具。
+  init:
+    image: curlimages/curl:8.23.0@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93
+    entrypoint: ["/bin/sh", "/init.sh"]
+    user: "${PUID}:${PGID}"
+    environment:
+      WONTON_OWNER_NAME: ${WONTON_OWNER_NAME}
+      WONTON_SECRET_OWNER_PASSWORD: ${WONTON_SECRET_OWNER_PASSWORD}
+    volumes:
+      - ${WONTON_APP_DATA}/bridge:/bridge
+    configs:
+      - source: init
+        target: /init.sh
+    depends_on:
+      memos:
+        condition: service_healthy
+    restart: "no"
+
+  # MCP 的入口：核心的 MCP 总线不带凭据，这里替它加上主人账号的令牌。
+  mcp:
+    image: nginx:1.30.6-alpine@sha256:0e52bd054126cdc040b1276c0af347aeb02a41b9cfe305d6094767ac30e97949
+    user: "${PUID}:${PGID}"
+    read_only: true
+    # 只读根文件系统下还要有地方写 pid 和请求体临时文件：run 目录归运行用户，临时文件放 /dev/shm（1777 的 tmpfs，
+    # 容量给到和请求体上限一样）。
+    shm_size: 256m
+    volumes:
+      - ${WONTON_APP_DATA}/bridge:/etc/nginx/conf.d:ro
+      - ${WONTON_APP_DATA}/run:/run
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      start_interval: 1s
+
+configs:
+  config:
+    file: config/wonton.json
+  init:
+    file: config/init.sh
+
+x-wonton:
+  spec: "0.4"
+  id: com.usememos.memos
+  version: 0.1.0
+  kind: app
+  title: { zh: Memos, en: Memos }
+  description:
+    zh: 碎片笔记、日记和待办，全文搜索，数据在自己家里
+    en: Short notes, journal and todos with full-text search, stored at home
+  icon: icon.png
+  notices: [NOTICE]
+  category: productivity
+  screenshots:
+    - screenshots/memos.png
+    - screenshots/search.png
+    - screenshots/tags.png
+    - screenshots/todo.png
+  author: { name: geraldpeng6, url: https://github.com/geraldpeng6 }
+  homepage: https://usememos.com
+  license: MIT
+  tags: [memos, 笔记, notes, 待办, todos, 日记, journal, 标签]
+  about:
+    zh: |
+      记速记、日记和待办，打标签，按内容全文搜索。笔记默认不公开，可以逐条改成公开或发给某个链接。
+
+      登录走核心的身份提供方：打开就是主人自己，主人是实例的管理员，没有第二个登录页。
+
+      Bot 经 Memos 自带的 MCP 服务搜索、新建、追加笔记；Agent 能看到的和改的就是主人自己能看到和能改的。
+    en: |
+      Write short notes, journal entries and todos, tag them, and search their text. Notes are private by default
+      and can be made public or shared by link one by one.
+
+      Sign-in goes through the core identity provider: the owner lands in their own account as the instance
+      administrator, without a second login page.
+
+      The bot searches, creates and appends notes through the MCP server that ships with Memos; an agent sees and
+      changes exactly what the owner can.
+  release_notes:
+    zh: 首次接入 Memos，原样使用上游满幅 PNG 图标；初始化在联网前收紧旧凭据权限，传输失败保留错误原因。
+    en: Integrates Memos with its unmodified upstream PNG icon; initialization secures existing credentials before network access and preserves transport errors.
+  webui:
+    service: memos
+    port: 5230
+    sso: oidc
+    oidc:
+      redirect_paths: [/auth/callback]
+  mcp:
+    service: mcp
+    port: 8080
+    transport: streamable-http
+  secrets:
+    owner_password:
+      generate: { bytes: 32 }
+  permissions:
+    - owner.identity
+  requirements:
+    arch: [amd64, arm64]
+    memory: 256M

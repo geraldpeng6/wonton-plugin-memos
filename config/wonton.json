@@ -1,0 +1,75 @@
+{
+  "identityProviders": [
+    {
+      "name": "identity-providers/wonton",
+      "type": "OAUTH2",
+      "title": "云吞",
+      "config": {
+        "oauth2Config": {
+          "clientId": "${env:WONTON_OIDC_CLIENT_ID}",
+          "clientSecret": "${env:WONTON_OIDC_CLIENT_SECRET}",
+          "authUrl": "${env:WONTON_OIDC_AUTH_URL}",
+          "tokenUrl": "${env:WONTON_OIDC_TOKEN_URL}",
+          "userInfoUrl": "${env:WONTON_OIDC_USERINFO_URL}",
+          "scopes": [
+            "openid",
+            "profile",
+            "email"
+          ],
+          "fieldMapping": {
+            "identifier": "preferred_username",
+            "displayName": "name",
+            "email": "email"
+          }
+        }
+      }
+    }
+  ],
+  "users": [
+    {
+      "name": "${env:MEMOS_CONFIG_USER_NAME}",
+      "username": "${env:WONTON_OWNER_NAME}",
+      "email": "${env:WONTON_OWNER_EMAIL}",
+      "role": "ADMIN",
+      "password": "${env:WONTON_SECRET_OWNER_PASSWORD}"
+    }
+  ],
+  "linkedIdentities": [
+    {
+      "name": "${env:MEMOS_CONFIG_LINKED_NAME}",
+      "externalUid": "${env:WONTON_OWNER_NAME}"
+    }
+  ],
+  "instanceSettings": [
+    {
+      "name": "instance/settings/ACCESS",
+      "accessSetting": {
+        "accessMode": "INSTANCE_ACCESS_MODE_PRIVATE"
+      }
+    },
+    {
+      "name": "instance/settings/GENERAL",
+      "generalSetting": {
+        "disallowUserRegistration": true,
+        "disallowPasswordAuth": true
+      }
+    }
+  ],
+  "lifecycle": [
+    {
+      "resource": "${env:MEMOS_CONFIG_USER_NAME}",
+      "preventDestroy": true
+    },
+    {
+      "resource": "instance/settings/GENERAL",
+      "ignoreChanges": [
+        "generalSetting.additionalScript",
+        "generalSetting.additionalStyle",
+        "generalSetting.customProfile",
+        "generalSetting.weekStartDayOffset",
+        "generalSetting.disallowChangeUsername",
+        "generalSetting.disallowChangeNickname"
+      ]
+    }
+  ]
+}
