@@ -10,15 +10,15 @@
   在 PR 里写明缺什么、为什么要，向云吞提 issue。
 - 只申请用得到的权限：要出网才申请 `network.egress`，只读的共享文件夹申请 `:read` 并以 `:ro` 挂载。
 - 登录交给核心：应用支持 OIDC 就用 `sso: oidc`，认反向代理传来的用户名就用 `sso: proxy`。不另做一套登录，也不把
-  主人令牌交给插件。
-- 要用大模型就申请 `models`，经模型网关访问。插件里不放任何第三方 API key，也不让主人把 key 填进插件。
+  用户令牌交给插件。
+- 要用大模型就申请 `models`，经模型网关访问。插件里不放任何第三方 API key，也不让用户把 key 填进插件。
 - 插件自己的密钥写在清单的 `secrets` 里，由核心生成或保管；不写进 compose、配置文件和镜像。
 - 镜像：
   - 用上游官方镜像，按清单列表（index）的摘要固定：`名字:标签@sha256:…`。
   - 不改上游镜像，不另发修改版。确实要自己构建的，Dockerfile 放在 `images/<名字>/`，由 `scripts/publish.sh`
     构建多架构镜像、推送并按摘要固定。
   - 新用一个镜像或依赖时写明它的许可证。清单的 `license` 写应用的许可证（SPDX），插件包自己的许可证写在 LICENSE 里。
-- README 是写插件的指南。从模板新建的插件仓库保留它，只把开头的标题和介绍换成这个插件的；给主人看的介绍写在清单的
+- README 是写插件的指南。从模板新建的插件仓库保留它，只把开头的标题和介绍换成这个插件的；给用户看的介绍写在清单的
   `description` 和 `about` 里，商店显示的是它们。
 
 ## 运行时原则：失败即停
@@ -52,8 +52,8 @@
 
 1. `scripts/check.sh --official` 没有不合格，提醒都有原因。
 2. `scripts/dev.sh reinstall --yes` 装得上，`scripts/dev.sh status` 里是 `running healthy`。
-3. 浏览器打开插件网页：不用再登录一次，进去就是主人。把插件的主要功能用一遍。没有浏览器时用
-   `scripts/dev.sh web <路径> [<curl 参数>…]` 以主人的身份请求网页和它的接口。
+3. 浏览器打开插件网页：不用再登录一次，进去就是用户。把插件的主要功能用一遍。没有浏览器时用
+   `scripts/dev.sh web <路径> [<curl 参数>…]` 以用户的身份请求网页和它的接口。
 4. 写进数据的操作做一次，`scripts/dev.sh reinstall --yes` 以后数据还在；`scripts/dev.sh uninstall --purge` 以后数据
    删干净了（没有 `.wonton/data/apps/<slug>/`，`docker volume ls` 里没有它的卷）。
 

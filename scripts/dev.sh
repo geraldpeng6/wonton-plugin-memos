@@ -8,10 +8,10 @@
 #   scripts/dev.sh uninstall [--purge]        卸载；--purge 连插件的数据一起删
 #   scripts/dev.sh status                     开发环境的服务和装着的插件
 #   scripts/dev.sh logs [<服务>]              跟着看核心的日志；给了插件的服务名就看那个服务的
-#   scripts/dev.sh token                      主人令牌：浏览器登录和调接口都用它
-#   scripts/dev.sh session [--new]            建立主人会话（--new 重建），cookie 存在 .wonton/session.cookies
+#   scripts/dev.sh token                      用户令牌：浏览器登录和调接口都用它
+#   scripts/dev.sh session [--new]            建立用户会话（--new 重建），cookie 存在 .wonton/session.cookies
 #   scripts/dev.sh web [--jar <文件>] [--fresh] [<路径> [<curl 参数>…]]
-#                                             以主人的身份请求插件网页上的地址（默认 /），默认沿用 session 的 cookie：
+#                                             以用户的身份请求插件网页上的地址（默认 /），默认沿用 session 的 cookie：
 #                                             没有浏览器时验证网页，也能带着同一个会话走完应用自己的登录链
 #   scripts/dev.sh mcp list                   Bot 经 MCP 总线能调到的工具（JSON）
 #   scripts/dev.sh mcp call <工具> [<JSON>]   经 MCP 总线调用工具，参数是 JSON 对象，默认 {}
@@ -155,8 +155,10 @@ up() {
   docker run --rm --user "$(id -u):$(id -g)" -v "$state:$state" "$image" init "$state" "$instance.wonton.localhost" >/dev/null
   info "启动核心、身份提供方和 Matrix 服务器（第一次要拉镜像，几分钟）"
   compose up -d --wait --wait-timeout 600 || die "没有在 10 分钟内就绪，看看日志：scripts/dev.sh logs"
+  need_env
+  fill_profile
   echo "开发环境就绪：http://$instance.wonton.localhost:$port/（实例 $instance）"
-  echo "浏览器打开它，用 scripts/dev.sh token 输出的主人令牌登录；接着 scripts/dev.sh install 装插件"
+  echo "浏览器打开它，用 scripts/dev.sh token 输出的用户令牌登录；接着 scripts/dev.sh install 装插件"
 }
 
 # 下面的命令要开发环境已经 up 过。
@@ -170,7 +172,7 @@ need_env() {
 
 token() {
   docker exec "$core" cat "$state/data/core/owner-token" 2>/dev/null ||
-    die "读不到主人令牌：核心没在运行？先 scripts/dev.sh up"
+    die "读不到用户令牌：核心没在运行？先 scripts/dev.sh up"
 }
 
 # 调核心的管理接口。*.localhost 由 curl 自己解析到本机，不经代理。常在 $(…) 里调用，bash 在那里不带 set -e，
@@ -182,6 +184,28 @@ api() {
   curl -sS --noproxy '*' --fail-with-body -X "$method" \
     -H "Authorization: Bearer $owner" -H "Accept-Language: zh-CN,zh;q=0.9" \
     "$@" "$base_url$path"
+}
+
+# 要邮箱的插件装不上没填资料的核心。用户在 App 里填，开发环境没有 App，这里替他填；填过的不动。显示名用用户名，和没填过
+# 名字时一样。没有这个接口（404）的核心从 .env 读邮箱。
+fill_profile() {
+  local result status body
+  result="$(api GET /_wonton/api/owner-profile -w '\n%{http_code}' 2>/dev/null)" || true
+  status="${result##*$'\n'}"
+  body="${result%$'\n'*}"
+  [[ "$status" != 404 ]] || return 0
+  [[ "$status" == 200 ]] || die "读不到你的资料：$(error_text "$body")"
+  body="$(python3 - "$body" "$owner_email" <<'PY'
+import json, sys
+profile = json.loads(sys.argv[1])
+if not profile["email"]:
+    print(json.dumps({"display_name": profile["display_name"] or profile["username"], "email": sys.argv[2]}))
+PY
+  )" || die "看不懂核心回的资料：$result"
+  [[ -n "$body" ]] || return 0
+  info "填上你的资料（$owner_email）"
+  result="$(api PUT /_wonton/api/owner-profile -H 'Content-Type: application/json' -d "$body")" ||
+    die "填不上你的资料：$(error_text "$result")"
 }
 
 # 接口报错时给人看的一行：核心回的是 {"error": {"kind", "message"}}，别的原样给出。
@@ -341,7 +365,7 @@ session_into() {
   owner="$(token)"
   url="$(plugin_web_url "$(plugin_id)")"
   curl -sS --noproxy '*' --fail-with-body -o /dev/null -c "$jar" --data-urlencode "token=$owner" \
-    "$base_url/_wonton/login" || die "主人令牌登录不了核心"
+    "$base_url/_wonton/login" || die "用户令牌登录不了核心"
   curl -sS --noproxy '*' -o /dev/null -L -b "$jar" -c "$jar" -H 'Accept: text/html' "$url/" ||
     die "走不通插件网页的登录跳转"
 }
@@ -358,7 +382,7 @@ session() {
   echo "$(session_jar)"
 }
 
-# 带主人会话请求插件网页，其余参数原样交给 curl。没登录的非网页请求网关回 401、不跳转，所以登录那一步要 Accept: text/html。
+# 带用户会话请求插件网页，其余参数原样交给 curl。没登录的非网页请求网关回 401、不跳转，所以登录那一步要 Accept: text/html。
 web() {
   local path="/" jar fresh=""
   jar="$(session_jar)"

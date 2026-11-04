@@ -1,7 +1,7 @@
 # 云吞插件：Memos
 
 Memos（[usememos.com](https://usememos.com)，MIT）是自托管的碎片笔记：速记、日记、待办和标签，全文搜索，笔记默认在
-自己家里。这个插件把它装进云吞：网页经核心网关打开，登录走核心的身份提供方，主人的账号就是 Memos 的管理员；Bot 经
+自己家里。这个插件把它装进云吞：网页经核心网关打开，登录走核心的身份提供方，用户的账号就是 Memos 的管理员；Bot 经
 Memos 自带的 MCP 服务搜索、新建、追加笔记。
 
 插件用上游官方镜像 `neosmemo/memos`，按摘要固定。数据在插件自己的数据目录里，不要额外的数据库和缓存。
@@ -34,7 +34,7 @@ scripts/dev.sh install
 ```
 
 `up` 在本机起一套云吞，打印它的地址，如 `http://hello3f2a.wonton.localhost:21234/`。浏览器打开，用
-`scripts/dev.sh token` 输出的主人令牌登录。`install` 先列出插件要的权限，确认后装上，打印插件网页的地址；打开就是
+`scripts/dev.sh token` 输出的用户令牌登录。`install` 先列出插件要的权限，确认后装上，打印插件网页的地址；打开就是
 “你好，owner”。Chrome、Firefox 和 curl 把 `*.localhost` 直接解析到本机，不用改 hosts。
 
 ## 仓库里有什么
@@ -46,7 +46,6 @@ scripts/dev.sh install
 | `screenshots/` | 商店详情页里的截图 |
 | `scripts/check.sh` | 检查插件包，规则和安装时一样 |
 | `scripts/dev.sh` | 开发环境：起一套云吞，装、重装、卸载插件，看日志 |
-| `scripts/smoke-probes.sh` | `scripts/dev.sh smoke` 对这个插件逐项的探测 |
 | `scripts/publish.sh` | 发布一个版本：构建自己的镜像、按摘要写回、打 tag、推送 |
 | `AGENTS.md` | 给人和 AI 编程代理的规则 |
 | `.wonton/` | 开发环境的设置、密钥和数据，不提交 |
@@ -81,7 +80,7 @@ x-wonton:
   官方插件。
 - `title`、`description` 至少写 `zh` 和 `en`。
 - `permissions` 必填，不要权限时写空列表。
-- `requirements` 可选：`arch`（如 `[amd64, arm64]`，和主人的服务器架构不符时装不上）、`memory`（如 `2G`）、
+- `requirements` 可选：`arch`（如 `[amd64, arm64]`，和用户的服务器架构不符时装不上）、`memory`（如 `2G`）、
   `gpu`（`required` 或 `optional`）。
 - 插件的设置做在插件自己的网页里。清单的 `settings`（给 App 渲染原生表单的 JSON Schema）是预留的。
 - 清单里有未知字段时装不上：拼错的字段不会被悄悄忽略。
@@ -128,9 +127,9 @@ docker buildx imagetools inspect nginx:1.30.6-alpine
   `oidc.redirect_paths`（如 `[/auth/callback]`），在 `environment` 里把注入的 `WONTON_OIDC_ISSUER`、
   `WONTON_OIDC_CLIENT_ID`、`WONTON_OIDC_CLIENT_SECRET` 交给应用；不支持发现文档的应用另有
   `WONTON_OIDC_AUTH_URL`、`WONTON_OIDC_TOKEN_URL`、`WONTON_OIDC_USERINFO_URL`。可以申请的 scope 有 `openid`、`profile`、
-  `email`、`groups`（主人是 `["owner"]`）、`offline_access`。
+  `email`、`groups`（用户是 `["owner"]`）、`offline_access`。
 - `proxy`：应用不支持 OIDC，但认反向代理传来的用户名（Navidrome、Paperless-ngx、Grafana 的 auth proxy）或一个固定的
-  密钥时用。网关认出主人后，在转发给插件的请求上加上 `proxy.headers` 或 `proxy.cookies`，值里可以用 `{user}`、`{name}`、
+  密钥时用。网关认出用户后，在转发给插件的请求上加上 `proxy.headers` 或 `proxy.cookies`，值里可以用 `{user}`、`{name}`、
   `{email}` 和 `{secret:<名字>}`（插件密钥里由核心生成、至少 16 字节的一项，见第 8 步）；Cookie 的值只能用
   `{secret:…}` 和固定文字。网关先删掉客户端发来的同名请求头和 Cookie，客户端伪造不了；插件网络里只有核心和插件自己的
   服务，所以应用“信任的代理地址”可以放宽到整个网络。示例就是这样拿到用户名的。
@@ -151,13 +150,13 @@ services:
   服务的 `user`：没写或是 root 时交给 `PUID:PGID`（以 root 启动、再按 `PUID`/`PGID` 降权的镜像就是这样，如
   LinuxServer.io 的镜像）；写成数字的 `uid:gid` 时交给它（镜像固定以某个 uid 运行时写上它）；写用户名或只写 uid 时装不上，
   几个服务以不同的属主挂载同一个目录时也装不上。能以任意 uid 运行的镜像写 `user: "${PUID}:${PGID}"`，宿主上的文件就归
-  主人的用户。核心只改这些目录本身的属主，不递归改里面已有的文件。
+  用户的用户。核心只改这些目录本身的属主，不递归改里面已有的文件。
 - 开发环境里 `${WONTON_APP_DATA}` 是 `.wonton/data/apps/<slug>/`，可以直接看插件写了什么。
 - 也可以用命名卷：在顶层 `volumes` 里声明，Docker 里叫 `wonton-<slug>--<卷名>`。
 - 共享文件夹（照片、文档、音乐……）要在 `permissions` 里申请 `storage.share.<名称>:read` 或 `:write`，挂
   `${WONTON_SHARE_<名称大写>}`。只读的必须写 `:ro`，而且只能挂整个文件夹，不能挂子目录。
 - 只能挂这几种宿主路径，不能有 `..`，不支持相对路径；同一个插件的绑定挂载不能一个套着另一个。
-- 卸载时默认保留数据（数据目录、命名卷、插件密钥），再装时接着用；主人选了删除数据才删。共享文件夹永远不删。
+- 卸载时默认保留数据（数据目录、命名卷、插件密钥），再装时接着用；用户选了删除数据才删。共享文件夹永远不删。
 
 ### 5. 网络
 
@@ -177,7 +176,7 @@ services:
 | `matrix.bot` | 以 Bot 的身份收发消息，注入 `WONTON_MATRIX_*` |
 | `storage.home:read`、`:write`，`notify`，`network.host`，`devices.gpu`，`devices.<路径>`，`docker.socket` | 规范里有，核心还不支持的，安装预览如实说装不了 |
 
-安装时主人要确认清单里的全部权限，少一项多一项都装不上。只申请真用得到的：权限越少，主人越放心。
+安装时用户要确认清单里的全部权限，少一项多一项都装不上。只申请真用得到的：权限越少，用户越放心。
 
 ### 7. 注入的变量
 
@@ -281,7 +280,7 @@ x-wonton:
 ### 11. Agent、Bot、模型和工具
 
 - 要以 Bot 身份收发消息的插件申请 `matrix.bot`，可以用 `bot.display_name`（多语言）、`bot.avatar`（包里的图片）定显示名
-  和头像。核心替主人建好和 Bot 的加密私聊（`WONTON_MATRIX_HOME_ROOM`）；Bot 只接受 `WONTON_MATRIX_OWNER` 的指令。
+  和头像。核心替用户建好和 Bot 的加密私聊（`WONTON_MATRIX_HOME_ROOM`）；Bot 只接受 `WONTON_MATRIX_OWNER` 的指令。
   一个插件要几个 Bot 时用 `bots`，每个 Bot 一组容器。
 - `kind: agent` 的插件要写 `agent.protocol`：`matrix`（Agent 自己登录 Matrix，要申请 `matrix.bot`）或 `acp`（经 ACP
   桥接入）。
@@ -301,18 +300,11 @@ x-wonton:
 | `scripts/dev.sh uninstall [--purge]` | 卸载；`--purge` 连插件的数据一起删 |
 | `scripts/dev.sh status` | 开发环境的服务和装着的插件 |
 | `scripts/dev.sh logs [<服务>]` | 跟着看核心的日志；给了插件的服务名就看那个服务的 |
-| `scripts/dev.sh token` | 主人令牌 |
-| `scripts/dev.sh web [--jar <文件>] [--fresh] [<路径> [<curl 参数>…]]` | 以主人的身份请求插件网页上的地址（默认 `/`），其余参数交给 curl：没有浏览器时验证网页和接口。默认沿用 `session` 的会话，能带着它走完应用自己的登录链 |
-| `scripts/dev.sh session [--new]` | 建立（`--new` 重建）主人会话，cookie 留在 `.wonton/session.cookies` |
-| `scripts/dev.sh mcp list` | Bot 经 MCP 总线能调到的工具（JSON） |
-| `scripts/dev.sh mcp call <工具> [<JSON>]` | 经 MCP 总线调用工具，参数是 JSON 对象，默认 `{}` |
-| `scripts/dev.sh smoke` | 合并前的端到端冒烟：装得上、网页打得开、主人身份能用、工具 Bot 调得到，任何 FAIL 退出非 0 |
+| `scripts/dev.sh token` | 用户令牌 |
+| `scripts/dev.sh web [<路径> [<curl 参数>…]]` | 以用户的身份请求插件网页上的地址（默认 `/`），其余参数交给 curl：没有浏览器时验证网页和接口 |
 | `scripts/dev.sh pair` | 终端里出配对二维码，App 扫码连上这套开发环境 |
 | `scripts/dev.sh down` | 停下，数据都留着 |
 | `scripts/dev.sh purge` | 删掉整个开发环境 |
-
-`smoke` 把工作区复制到临时目录，起一套以 `smoke` 开头的一次性实例，四项都跑真实请求，跑完删掉容器、网络、卷和目录，
-不动已有的 `.wonton`。插件自己的探测在 `scripts/smoke-probes.sh`。要用出口代理时设 `WONTON_DEV_EGRESS_PROXY=http://…`。
 
 开发环境和正式安装用同一份 compose（核心、身份提供方 Ory Hydra、Matrix 服务器 Tuwunel），只是项目名、核心的容器名
 和实例名不同；核心起来后同样预装模型网关 magpie（`ai.usemagpie.magpie`）。第一次 `up` 时定下设置，写在 `.wonton/.env`：
@@ -343,7 +335,7 @@ x-wonton:
 - `scripts/dev.sh status` 列出插件的状态：`running healthy` 是每个长期运行的服务都有健康检查而且都通过了；
   `running unknown` 是只知道在运行（有服务没有健康检查，或者核心重启后还没检查通过）；`degraded` 后面是原因。核心在
   安装时和每次启动时检查，两次检查之间不盯着插件，容器停了要看 `docker ps`。
-- 管理接口用主人令牌调：
+- 管理接口用用户令牌调：
 
   ```bash
   curl -H "Authorization: Bearer $(scripts/dev.sh token)" http://<实例名>.wonton.localhost:<端口>/_wonton/api/plugins
@@ -387,12 +379,12 @@ scripts/check.sh
 2. 执行 `scripts/publish.sh`（要进官方商店加 `--official`）。它检查工作区干净、插件包合格，构建自己的镜像（下面），打 tag
    `v<版本>`，推送当前分支和 tag。
 
-发布过的 tag 不要移动：已经装上的不受影响，但核心会提示主人这个 tag 被改过。带预发布后缀的版本（如 `v1.2.0-beta.1`）只能
+发布过的 tag 不要移动：已经装上的不受影响，但核心会提示用户这个 tag 被改过。带预发布后缀的版本（如 `v1.2.0-beta.1`）只能
 按 tag 明确安装，不进商店，也不作为升级提示。
 
 插件要用自己构建的镜像时，把 Dockerfile 放在 `images/<名字>/`，compose 里写 `image: ghcr.io/<你>/<名字>:<版本>`。
 `publish.sh` 用 `docker buildx` 构建 linux/amd64 和 linux/arm64 的镜像，推上去，把 compose 里这一行改成新版本的摘要再
-提交。这需要能构建多架构镜像的 buildx，和 `docker login` 登录镜像仓库；镜像要公开，主人的服务器才拉得到。核心不构建镜像，
+提交。这需要能构建多架构镜像的 buildx，和 `docker login` 登录镜像仓库；镜像要公开，用户的服务器才拉得到。核心不构建镜像，
 所以 compose 里不能写 `build`。开发时先在本机构建同名的镜像（`docker build -t ghcr.io/<你>/<名字>:<版本> images/<名字>`），
 本机有这个镜像时核心不去拉取。
 
