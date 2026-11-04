@@ -29,10 +29,10 @@ identity_check() {
   [[ -n "$at" ]] || { echo "signin 没有 accessToken：$me"; return 1; }
   me="$(web_get /api/auth/me -H "Authorization: Bearer $at")" || { echo "/api/auth/me 失败：$me"; return 1; }
   jq -e --arg u "$SMOKE_OWNER" '.user.username == $u and .user.role == "ADMIN" and (.user.name == "users/" + $u)' <<<"$me" >/dev/null ||
-    { echo "/api/auth/me 不是主人的 ADMIN：$me"; return 1; }
+    { echo "/api/auth/me 不是用户的 ADMIN：$me"; return 1; }
 }
 
-mcp_check() { # tools/list 有本插件工具；调只读的 auth_get_current_user，内容是主人
+mcp_check() { # tools/list 有本插件工具；调只读的 auth_get_current_user，内容是用户
   local tools="$SMOKE_TOOLS" call_out ann n_mine
   n_mine="$(jq --arg s "$SMOKE_SLUG" '[.[] | select(.name | startswith($s + "__"))] | length' "$tools")"
   [[ "$n_mine" -ge 1 ]] || { echo "tools/list 没有 $SMOKE_SLUG"__" 前缀工具"; return 1; }
@@ -43,5 +43,5 @@ mcp_check() { # tools/list 有本插件工具；调只读的 auth_get_current_us
   jq -e --arg u "$SMOKE_OWNER" \
     '.content[0].text | fromjson | .user | (.username == $u and .role == "ADMIN" and (.name == "users/" + $u))' \
     <<<"$call_out" >/dev/null ||
-    { echo "当前用户不是主人 ADMIN：$call_out"; return 1; }
+    { echo "当前用户不是用户 ADMIN：$call_out"; return 1; }
 }
