@@ -1,6 +1,5 @@
+# shellcheck shell=bash
 # Memos：sso=oidc；MCP 经 nginx 侧车（带 PAT），工具前缀 com-usememos-memos__。
-SSO=oidc
-MCP=1
 ID_TOOL=auth_get_current_user
 
 web_assert() { grep -qi 'memos'; }   # 标准输入：OIDC 走完后落到应用真实页面
@@ -35,7 +34,7 @@ identity_check() {
 mcp_check() { # tools/list 有本插件工具；调只读的 auth_get_current_user，内容是用户
   local tools="$SMOKE_TOOLS" call_out ann n_mine
   n_mine="$(jq --arg s "$SMOKE_SLUG" '[.[] | select(.name | startswith($s + "__"))] | length' "$tools")"
-  [[ "$n_mine" -ge 1 ]] || { echo "tools/list 没有 $SMOKE_SLUG"__" 前缀工具"; return 1; }
+  [[ "$n_mine" -ge 1 ]] || { echo "tools/list 没有 ${SMOKE_SLUG}__ 前缀工具"; return 1; }
   ann="$(jq -r --arg s "$SMOKE_SLUG" --arg t "$ID_TOOL" \
     '.[] | select(.name == $s + "__" + $t) | .annotations.readOnlyHint // "missing"' "$tools")"
   [[ "$ann" == true ]] || { echo "$ID_TOOL 没标 readOnlyHint=true（$ann）"; return 1; }
