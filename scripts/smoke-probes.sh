@@ -8,11 +8,14 @@ web_assert() { grep -qi 'memos'; }   # 标准输入：OIDC 走完后落到应用
 
 # 核心会话 Cookie：数据钩子跑在第一次会话建立之前，自己登录（网关只认核心会话）。
 smoke_core_login() { # <jar>
-  local base token
+  local base token code
   base="${E2E_BASE:-${SMOKE_BASE:-}}"
   token="${E2E_TOKEN:-${SMOKE_TOKEN:-}}"
   [[ -n "$base" && -n "$token" ]] || { echo "没有核心地址或主人令牌"; return 1; }
-  curl -sS --noproxy '*' -o /dev/null -c "$1" --data-urlencode "token=$token" "$base/_wonton/login"
+  curl -sS --noproxy '*' -o /dev/null -L -c "$1" --data-urlencode "token=$token" "$base/_wonton/login" ||
+    { echo "核心登录请求失败"; return 1; }
+  code="$(curl -sS --noproxy '*' -o /dev/null -w '%{http_code}' -b "$1" "$base/_wonton/api/plugins")"
+  [[ "$code" == 200 ]] || { echo "核心会话没建立：/_wonton/api/plugins 返回 $code"; return 1; }
 }
 
 
@@ -70,7 +73,7 @@ data_write() {
   at="$(memos_token)"
   [[ -n "$at" ]] || { echo "signin 没有 accessToken，建不了 memo"; return 1; }
   resp="$(curl -sS --noproxy '*' --fail-with-body -b "${SMOKE_JAR:-}" -H "Authorization: Bearer $at" \
-    -H 'Content-Type: application/json' --data "$(jq -nc --arg c "$marker" '{memo:{content:$c}}')" "$base/api/memos")" ||
+    -H 'Content-Type: application/json' --data "$(jq -nc --arg c "$marker" '{content:$c}')" "$base/api/memos")" ||
     { echo "建 memo 失败：$resp"; return 1; }
   jq -e --arg c "$marker" '.content == $c' <<<"$resp" >/dev/null 2>&1 ||
     { echo "memo 没建成：$(head -c 200 <<<"$resp")"; return 1; }
