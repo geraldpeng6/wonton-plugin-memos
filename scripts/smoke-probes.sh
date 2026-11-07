@@ -66,18 +66,22 @@ identity_check() {
 }
 
 # 写一条带随机标记的 memo，把它的资源名和标记写进 $SMOKE_STATE（标记文件，data_write 覆盖写）。
+# 26.11 的网页用 Connect（/memos.api.MemoService/…），grpc-gateway 的 /api/memos 对 JSON 体回 400；
+# 这里跟网页走同一组接口，JSON 编码，令牌用刚取的 accessToken。
 data_write() {
-  local base marker at resp
+  local base marker at resp name
   base="$(memos_base)"
   marker="wonton-smoke-$(head -c8 /dev/urandom | od -An -tx1 | tr -d ' \n')"
   at="$(memos_token)"
   [[ -n "$at" ]] || { echo "signin 没有 accessToken，建不了 memo"; return 1; }
   resp="$(curl -sS --noproxy '*' --fail-with-body -b "${SMOKE_JAR:-}" -H "Authorization: Bearer $at" \
-    -H 'Content-Type: application/json' --data "$(jq -nc --arg c "$marker" '{content:$c}')" "$base/api/memos")" ||
-    { echo "建 memo 失败：$resp"; return 1; }
+    -H 'Content-Type: application/json' --data "$(jq -nc --arg c "$marker" '{memo:{content:$c}}')" \
+    "$base/memos.api.MemoService/CreateMemo")" || { echo "建 memo 失败：$resp"; return 1; }
+  name="$(jq -r '.name // empty' <<<"$resp" 2>/dev/null)"
+  [[ -n "$name" ]] || { echo "memo 没建成：$(head -c 200 <<<"$resp")"; return 1; }
   jq -e --arg c "$marker" '.content == $c' <<<"$resp" >/dev/null 2>&1 ||
-    { echo "memo 没建成：$(head -c 200 <<<"$resp")"; return 1; }
-  { jq -r '.name' <<<"$resp"; printf '%s\n' "$marker"; } >"${SMOKE_STATE:?}"
+    { echo "memo 内容不是标记：$(head -c 200 <<<"$resp")"; return 1; }
+  { printf '%s\n' "$name"; printf '%s\n' "$marker"; } >"${SMOKE_STATE:?}"
 }
 
 # 用刚取的新令牌读回那条 memo（OIDC 令牌每次重装/升级都换，不沿用 data_write 的）。
@@ -91,8 +95,9 @@ data_check() {
   [[ -n "${name:-}" && -n "${marker:-}" ]] || { echo "没有 data_write 留下的标记"; return 1; }
   at="$(memos_token)"
   [[ -n "$at" ]] || { echo "signin 没有 accessToken"; return 1; }
-  resp="$(curl -sS --noproxy '*' --fail-with-body -b "${SMOKE_JAR:-}" -H "Authorization: Bearer $at" "$base/api/$name")" ||
-    { echo "读 $name 失败：$resp"; return 1; }
+  resp="$(curl -sS --noproxy '*' --fail-with-body -b "${SMOKE_JAR:-}" -H "Authorization: Bearer $at" \
+    -H 'Content-Type: application/json' --data "$(jq -nc --arg n "$name" '{name:$n}')" \
+    "$base/memos.api.MemoService/GetMemo")" || { echo "读 $name 失败：$resp"; return 1; }
   jq -e --arg c "$marker" '.content == $c' <<<"$resp" >/dev/null 2>&1 ||
     { echo "memo 内容对不上：$(head -c 200 <<<"$resp")"; return 1; }
 }
