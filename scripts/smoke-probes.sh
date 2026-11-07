@@ -66,17 +66,27 @@ identity_check() {
 }
 
 # 写一条带随机标记的 memo，把它的资源名和标记写进 $SMOKE_STATE（标记文件，data_write 覆盖写）。
-# 26.11 的网页用 Connect（/memos.api.MemoService/…），grpc-gateway 的 /api/memos 对 JSON 体回 400；
-# 这里跟网页走同一组接口，JSON 编码，令牌用刚取的 accessToken。
+# 26.11 的网页用 Connect（/memos.api.MemoService/…）：POST 必须带 Connect-Protocol-Version: 1，
+# 否则 connect-go 直接回 400；grpc-gateway 的 /api/memos 对 JSON 体也回 400。
+memos_connect() { # <路径> <JSON 体> <token>：打一次 connect 调用，响应体打到标准输出，非 200 返回 1
+  local base="$1" path="$2" body="$3" at="$4" out code
+  out="$(curl -sS --noproxy '*' -w '\n%{http_code}' -b "${SMOKE_JAR:-}" -H "Authorization: Bearer $at" \
+    -H 'Content-Type: application/json' -H 'Connect-Protocol-Version: 1' --data "$body" "$base$path")" || return 1
+  code="${out##*$'\n'}"
+  out="${out%$'\n'*}"
+  [[ "$code" == 200 ]] || { echo "HTTP $code：$(head -c 200 <<<"$out")"; return 1; }
+  printf '%s' "$out"
+}
+
 data_write() {
   local base marker at resp name
   base="$(memos_base)"
   marker="wonton-smoke-$(head -c8 /dev/urandom | od -An -tx1 | tr -d ' \n')"
   at="$(memos_token)"
   [[ -n "$at" ]] || { echo "signin 没有 accessToken，建不了 memo"; return 1; }
-  resp="$(curl -sS --noproxy '*' --fail-with-body -b "${SMOKE_JAR:-}" -H "Authorization: Bearer $at" \
-    -H 'Content-Type: application/json' --data "$(jq -nc --arg c "$marker" '{memo:{content:$c}}')" \
-    "$base/memos.api.MemoService/CreateMemo")" || { echo "建 memo 失败：$resp"; return 1; }
+  resp="$(memos_connect "$base" /memos.api.MemoService/CreateMemo \
+    "$(jq -nc --arg c "$marker" '{memo:{content:$c,visibility:"PRIVATE"}}')" "$at")" ||
+    { echo "建 memo 失败"; return 1; }
   name="$(jq -r '.name // empty' <<<"$resp" 2>/dev/null)"
   [[ -n "$name" ]] || { echo "memo 没建成：$(head -c 200 <<<"$resp")"; return 1; }
   jq -e --arg c "$marker" '.content == $c' <<<"$resp" >/dev/null 2>&1 ||
@@ -95,9 +105,8 @@ data_check() {
   [[ -n "${name:-}" && -n "${marker:-}" ]] || { echo "没有 data_write 留下的标记"; return 1; }
   at="$(memos_token)"
   [[ -n "$at" ]] || { echo "signin 没有 accessToken"; return 1; }
-  resp="$(curl -sS --noproxy '*' --fail-with-body -b "${SMOKE_JAR:-}" -H "Authorization: Bearer $at" \
-    -H 'Content-Type: application/json' --data "$(jq -nc --arg n "$name" '{name:$n}')" \
-    "$base/memos.api.MemoService/GetMemo")" || { echo "读 $name 失败：$resp"; return 1; }
+  resp="$(memos_connect "$base" /memos.api.MemoService/GetMemo "$(jq -nc --arg n "$name" '{name:$n}')" "$at")" ||
+    { echo "读 $name 失败"; return 1; }
   jq -e --arg c "$marker" '.content == $c' <<<"$resp" >/dev/null 2>&1 ||
     { echo "memo 内容对不上：$(head -c 200 <<<"$resp")"; return 1; }
 }
