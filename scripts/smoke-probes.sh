@@ -7,11 +7,14 @@ web_assert() { grep -qi 'memos'; }   # 标准输入：OIDC 走完后落到应用
 # 走完浏览器式 OIDC：Hydra authorize（核心会话自动登录）→ 应用回调拿 code → 应用自己的
 # POST /api/auth/signin 换成会话 → 用 Bearer 调应用自己的“当前用户”接口。
 identity_check() {
-  local idps auth_url redirect enc_redirect state final code at me body
-  idps="$(web_get /api/identity-providers)" || { echo "取 identity providers 失败：$idps"; return 1; }
+  local idps auth_url redirect enc_redirect state final code at me body base
+  base="${SMOKE_WEB_URL%/}"   # 网关 web_url 带尾斜杠，直接拼会得到 //api/...，memos 会当未知路由回 SPA 页面
+  # 不用套件的 web_get：它把路径拼在带尾斜杠的 SMOKE_WEB_URL 后面，同样会出 //api/...
+  idps="$(curl -sS --noproxy '*' --fail-with-body -b "$SMOKE_JAR" "$base/api/identity-providers")" ||
+    { echo "取 identity providers 失败：$idps"; return 1; }
   auth_url="$(jq -r '.identityProviders[0].config.oauth2Config.authUrl' <<<"$idps")"
   [[ -n "$auth_url" && "$auth_url" != null ]] || { echo "没有 authUrl：$idps"; return 1; }
-  redirect="$SMOKE_WEB_URL/auth/callback"
+  redirect="$base/auth/callback"   # 清单声明 redirect_paths: [/auth/callback]，核心按 web_url+路径注册，必须逐字一致
   enc_redirect="$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe=""))' "$redirect")"
   state="$(head -c8 /dev/urandom | od -An -tx1 | tr -d ' \n')"   # Hydra 要求 state ≥ 8 字符
   final="$(curl -sS --noproxy '*' -o /dev/null -L -b "$SMOKE_JAR" -c "$SMOKE_JAR" -H 'Accept: text/html' \
@@ -23,10 +26,11 @@ identity_check() {
   body="$(jq -nc --arg c "$code" --arg r "$redirect" \
     '{ssoCredentials:{identityProvider:"identity-providers/wonton",code:$c,redirectUri:$r,codeVerifier:""}}')"
   me="$(curl -sS --noproxy '*' -b "$SMOKE_JAR" -c "$SMOKE_JAR" -H 'Content-Type: application/json' -d "$body" \
-    "$SMOKE_WEB_URL/api/auth/signin")" || { echo "signin 失败：$me"; return 1; }
+    "$base/api/auth/signin")" || { echo "signin 失败：$me"; return 1; }
   at="$(jq -r '.accessToken // empty' <<<"$me" 2>/dev/null)"
   [[ -n "$at" ]] || { echo "signin 没有 accessToken：$me"; return 1; }
-  me="$(web_get /api/auth/me -H "Authorization: Bearer $at")" || { echo "/api/auth/me 失败：$me"; return 1; }
+  me="$(curl -sS --noproxy '*' --fail-with-body -b "$SMOKE_JAR" -H "Authorization: Bearer $at" "$base/api/auth/me")" ||
+    { echo "/api/auth/me 失败：$me"; return 1; }
   jq -e --arg u "$SMOKE_OWNER" '.user.username == $u and .user.role == "ADMIN" and (.user.name == "users/" + $u)' <<<"$me" >/dev/null ||
     { echo "/api/auth/me 不是用户的 ADMIN：$me"; return 1; }
 }
