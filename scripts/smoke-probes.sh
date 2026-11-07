@@ -95,13 +95,15 @@ data_check() {
 }
 
 mcp_check() { # tools/list 有本插件工具；调只读的 auth_get_current_user，内容是用户
-  local tools="${E2E_TOOLS:-${SMOKE_TOOLS:-}}" call_out ann n_mine
+  local tools="${E2E_TOOLS:-${SMOKE_TOOLS:-}}" call_out ann n_mine url=()
+  # 插件的 smoke.sh 里 mcp() 自己带总线地址（传了 http… 会被套件剥掉）；e2e 的 mcp() 要去显式给（E2E_MCP_URL）。
+  [[ -n "${E2E_MCP_URL:-}" ]] && url=("$E2E_MCP_URL")
   n_mine="$(jq --arg s "${E2E_SLUG:-${SMOKE_SLUG:-}}" '[.[] | select(.name | startswith($s + "__"))] | length' "$tools")"
-  [[ "$n_mine" -ge 1 ]] || { echo "tools/list 没有 ${SMOKE_SLUG}__ 前缀工具"; return 1; }
+  [[ "$n_mine" -ge 1 ]] || { echo "tools/list 没有 ${E2E_SLUG:-${SMOKE_SLUG:-}}__ 前缀工具"; return 1; }
   ann="$(jq -r --arg s "${E2E_SLUG:-${SMOKE_SLUG:-}}" --arg t "$ID_TOOL" \
     '.[] | select(.name == $s + "__" + $t) | .annotations.readOnlyHint // "missing"' "$tools")"
   [[ "$ann" == true ]] || { echo "$ID_TOOL 没标 readOnlyHint=true（$ann）"; return 1; }
-  call_out="$(mcp call "${E2E_SLUG:-${SMOKE_SLUG:-}}__$ID_TOOL" '{}')" || { echo "调用失败：$call_out"; return 1; }
+  call_out="$(mcp call "${url[@]}" "${E2E_SLUG:-${SMOKE_SLUG:-}}__$ID_TOOL" '{}')" || { echo "调用失败：$call_out"; return 1; }
   jq -e --arg u "$SMOKE_OWNER" \
     '.content[0].text | fromjson | .user | (.username == $u and .role == "ADMIN" and (.name == "users/" + $u))' \
     <<<"$call_out" >/dev/null ||
