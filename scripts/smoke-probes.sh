@@ -66,6 +66,10 @@ identity_check() {
 
 # 写一条带随机标记的 memo，把它的资源名和标记写进 $SMOKE_STATE（标记文件，data_write 覆盖写）。
 # 走网关的 REST（/api/memos）：请求体就是 Memo 本身（proto 的 body: "memo"），跟 bearer 一起发。
+marker_file() { # SMOKE_STATE 在套件里是状态目录（e2e 传的是标记文件本身），标记放对应路径
+  if [[ -d "$SMOKE_STATE" ]]; then printf '%s' "$SMOKE_STATE/memos-marker"; else printf '%s' "${SMOKE_STATE}.marker"; fi
+}
+
 data_write() {
   local base marker at resp name try
   base="$(memos_base)"
@@ -82,7 +86,7 @@ data_write() {
   [[ -n "$name" ]] || { echo "memo 没建成：$(head -c 200 <<<"$resp")"; return 1; }
   jq -e --arg c "$marker" '.content == $c' <<<"$resp" >/dev/null 2>&1 ||
     { echo "memo 内容不是标记：$(head -c 200 <<<"$resp")"; return 1; }
-  { printf '%s\n' "$name"; printf '%s\n' "$marker"; } >"${SMOKE_STATE:?}"
+  { printf '%s\n' "$name"; printf '%s\n' "$marker"; } >"$(marker_file)"
 }
 
 # 用刚取的新令牌读回那条 memo（OIDC 令牌每次重装/升级都换，不沿用 data_write 的）。
@@ -92,7 +96,7 @@ data_check() {
   {
     read -r name
     read -r marker
-  } <"${SMOKE_STATE:-}" 2>/dev/null
+  } <"$(marker_file)" 2>/dev/null
   [[ -n "${name:-}" && -n "${marker:-}" ]] || { echo "没有 data_write 留下的标记"; return 1; }
   at="$(memos_token)"
   [[ -n "$at" ]] || { echo "signin 没有 accessToken"; return 1; }
