@@ -106,6 +106,35 @@ data_check() {
     { echo "memo 内容对不上：$(head -c 200 <<<"$resp")"; return 1; }
 }
 
+# 通知邮件（extra_check，不算六项）：装好后 Memos 的 SMTP 指向核心的内部邮箱。
+# 1) 测试邮件发给主人自己的内部地址：接口报成功，核心日志里能看到投递；
+# 2) 同一接口发给外部地址：核心在 SMTP 阶段 550 拒收，应用把失败如实报出来，而不是吞掉。
+extra_check() {
+  local base at out line
+  base="$(memos_base)"
+  at="$(memos_token)"
+  [[ -n "$at" ]] || { echo "signin 没有 accessToken"; return 1; }
+  out="$(curl -sS --noproxy '*' --fail-with-body -b "${SMOKE_JAR:-}" -H "Authorization: Bearer $at" \
+    -H 'Content-Type: application/json' -d '{}' \
+    "$base/api/instance/settings/notification:testEmail" 2>&1)" ||
+    { echo "测试邮件没发出去：$out"; return 1; }
+  # 发送是异步的：等核心日志里出现这封信的投递记录。
+  line=""
+  for _ in $(seq 1 15); do
+    line="$(docker logs "wonton-${SMOKE_INSTANCE:?}--core" 2>&1 | grep -i mail | tail -2)"
+    [[ -n "$line" ]] && break
+    sleep 2
+  done
+  [[ -n "$line" ]] || { echo "核心日志里没有投递记录"; return 1; }
+  echo "核心投递：$line"
+  out="$(curl -sS --noproxy '*' -b "${SMOKE_JAR:-}" -H "Authorization: Bearer $at" \
+    -H 'Content-Type: application/json' -d '{"recipientEmail":"wonton-smoke@example.com"}' \
+    "$base/api/instance/settings/notification:testEmail" 2>&1)" &&
+    { echo "外部收件人竟然发送成功：$out"; return 1; }
+  grep -q "failed to send test email" <<<"$out" ||
+    { echo "外部收件人的报错不是发送失败：$out"; return 1; }
+}
+
 mcp_check() { # tools/list 有本插件工具；调只读的 auth_get_current_user，内容是用户
   local tools="${E2E_TOOLS:-${SMOKE_TOOLS:-}}" call_out ann n_mine url=()
   # 插件的 smoke.sh 里 mcp() 自己带总线地址（传了 http… 会被套件剥掉）；e2e 的 mcp() 要去显式给（E2E_MCP_URL）。
