@@ -15,6 +15,8 @@ Memos（[usememos.com](https://usememos.com)，MIT）是自托管的碎片笔记
 - `network.egress` 只给 Webhook 推送、链接预览和 AI 语音转写用，笔记本身不出网也照常用。
 - 插件用上游官方镜像 `neosmemo/memos`，按摘要固定；数据在插件自己的数据目录里，不要额外的数据库和缓存。
 
+- 核心升级时容器会按新的签发方自动重建，不用重装；账号按已有的身份记录认回原账号，数据不动。
+
 ## 先跑起来
 
 ```bash

@@ -121,12 +121,16 @@ x-wonton:
       Bot 也能搜、能新建和追加笔记，看到的就是你自己看得到的。
 
       需要访问外网：Webhook 推送、链接预览和 AI 语音转写都得出网才能用，笔记本身不受影响。
+
+      核心升级后，插件容器会按新的签发方自动重建，打开照常，不用重装。
     en: |
       Jot down notes, keep a journal, list todos, tag them and search everything later. Notes stay private by default; you can make one public or share it by link.
 
       The bot can search, create and append notes, and sees exactly what you see.
 
       Needs internet access: webhooks, link previews and AI speech-to-text all reach the network; notes work offline.
+
+      After a core upgrade the plugin's containers are rebuilt with the new issuer automatically; pages open as before, with nothing to reinstall.
   release_notes: { zh: "加了出网权限：Webhook 推送、链接预览和 AI 语音转写都要访问外网。", en: "Added network access permission: webhooks, link previews and AI speech-to-text need it." }
   webui:
     service: memos
