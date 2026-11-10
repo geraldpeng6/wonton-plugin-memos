@@ -67,7 +67,7 @@ services:
 
   # MCP 的入口：核心的 MCP 总线不带凭据，这里替它加上用户账号的令牌。
   mcp:
-    image: nginx:1.31.7-alpine@sha256:892bb2152464f0c5d8972593a5f5afaf8054552580b699d95f8ff4af08c2d33d
+    image: nginx:1.31.8-alpine@sha256:713fc2ebfd92e8217db451477182ee91944b123d2b1ee9fd5a8c6e91ca6c3a11
     user: "${PUID}:${PGID}"
     read_only: true
     # 只读根文件系统下还要有地方写 pid 和请求体临时文件：run 目录归运行用户，临时文件放 /dev/shm（1777 的 tmpfs，

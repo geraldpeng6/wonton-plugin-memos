@@ -304,9 +304,12 @@ probes_mcp() { # 工具 Bot 调得到：tools/list 有本插件工具，只读�
     fail 工具Bot调得到 "没写探测：在 scripts/smoke-probes.sh 里写 MCP_TOOL=<只读工具>、MCP_ARGS 和 mcp_assert"
     return 0
   fi
-  gw="wonton-$SMOKE_INSTANCE--com-nousresearch-hermes--gateway"
   hermes_line="$(probes_status_wait com.nousresearch.hermes 40)" ||
     { fail 工具Bot调得到 "Hermes 不是 running healthy：$hermes_line"; return 1; }
+  # gateway 是 Bot 服务：核心 0.9 起容器名带 `--<Bot 名>`，旧核心没有，按前缀找在跑的那个。
+  gw="$(docker container ls --format '{{.Names}}' |
+    grep -x -m1 -E "wonton-$SMOKE_INSTANCE--com-nousresearch-hermes--gateway(--[a-z0-9-]+)?")" || true
+  [[ -n "$gw" ]] || { fail 工具Bot调得到 "没有在跑的 Hermes gateway 容器（wonton-$SMOKE_INSTANCE--com-nousresearch-hermes--gateway*）"; return 1; }
   if declare -F before_mcp >/dev/null; then
     before_mcp >>"$PROBES_LOG" 2>&1 ||
       { fail 工具Bot调得到 "工具的准备工作（before_mcp）失败，见 $PROBES_LOG 末尾：$(tail -c 200 "$PROBES_LOG" | tr '\n' ' ')"; return 0; }
