@@ -574,10 +574,9 @@ mcp() {
     mcp_direct "$@"
     return
   fi
-  # gateway 是 Bot 服务：核心 0.9 起容器名带 `--<Bot 名>`，旧核心没有，按前缀找在跑的那个。
-  gw="$(docker container ls --format '{{.Names}}' |
-    grep -x -m1 -E "wonton-$instance--com-nousresearch-hermes--gateway(--[a-z0-9-]+)?")" || true
-  [[ -n "$gw" ]] || die "没有 Hermes gateway 容器（wonton-$instance--com-nousresearch-hermes--gateway*）：先装上 Hermes"
+  # gateway 是 Bot 服务：核心把容器命名成 `<插件网络>--gateway--<Bot 名>`，旧核心没有后缀，按前缀找在跑的那个。
+  gw="$(running_container "wonton-$instance--com-nousresearch-hermes--gateway")" ||
+    die "没有在跑的 Hermes gateway 容器（wonton-$instance--com-nousresearch-hermes--gateway*）：先装上 Hermes"
   url="$(docker exec "$gw" printenv WONTON_MCP_URL 2>/dev/null)" || true
   [[ -n "$url" ]] || die "gateway 容器里没有 WONTON_MCP_URL：它的清单没申请 tools？"
   case "$sub" in
