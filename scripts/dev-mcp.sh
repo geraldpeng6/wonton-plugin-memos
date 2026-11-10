@@ -23,8 +23,12 @@ PY
   docker network inspect "$network" >/dev/null 2>&1 ||
     die "找不到插件网络 $network：直连要求插件使用核心管理的独立网络"
   # 不在插件网络里下载依赖：它可能禁止出网。Hermes 自带 SDK；只读复用，不改它的容器或文件。
-  image="$(docker container inspect --format '{{.Image}}' "wonton-$instance--com-nousresearch-hermes--gateway" 2>/dev/null)" ||
-    die "没有 Hermes gateway：直连复用它的镜像和 MCP SDK，先装上 Hermes"
+  # gateway 是 Bot 服务：核心 0.9 起容器名带 `--<Bot 名>`，旧核心没有，按前缀找在跑的那个。
+  gw="$(docker container ls --format '{{.Names}}' |
+    grep -x -m1 -E "wonton-$instance--com-nousresearch-hermes--gateway(--[a-z0-9-]+)?")" || true
+  [[ -n "$gw" ]] || die "没有 Hermes gateway：直连复用它的镜像和 MCP SDK，先装上 Hermes"
+  image="$(docker container inspect --format '{{.Image}}' "$gw" 2>/dev/null)" ||
+    die "读不到 Hermes gateway 的镜像（$gw）"
   client="wonton-$instance--mcp-client-$(random_hex 4)"
   shift
   docker run --rm -i --name "$client" --label "wonton.instance=$instance" --network "$network" \
