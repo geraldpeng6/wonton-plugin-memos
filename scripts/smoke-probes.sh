@@ -173,30 +173,30 @@ extra_check() {
   [[ -n "$found" ]] || { echo "主人的 Wonton 私聊里没有 memos 的测试信（150 秒）"; return 1; }
   echo "核心已把测试信投进主人的 Wonton 私聊（房间 $found）"
 
-  # 4) 外部收件人：入队成功，但 Mailpit 里永远不出现（550 拒收）
+  # 外部收件人：入队成功，但 Mailpit 里永远不出现（550 拒收）。memos 异步发信，查询太早缺席天然成立：
+  # 先留 30 秒发送窗口，缺席要在整个窗口后仍然成立才算拒收。
   local outsider
   outsider="wonton-smoke-$(date +%s)@example.com"
   out="$(curl -sS --noproxy '*' --fail-with-body -b "${SMOKE_JAR:-}" -H "Authorization: Bearer $at" \
     -H 'Content-Type: application/json' -d "{\"recipientEmail\":\"$outsider\"}" \
     "$base/api/instance/settings/notification:testEmail")" || { echo "外部收件人接口失败：$out"; return 1; }
   local mp_pw mp_out
-  mp_pw="$(docker exec "wonton-${SMOKE_INSTANCE}--core" sh -c 'cat "$(find / -maxdepth 6 -path "*/core/mailpit/api-password" 2>/dev/null | head -1)"' 2>/dev/null)"
+  mp_pw="$(docker exec "wonton-${SMOKE_INSTANCE}--core" sh -c 'cat "$WONTON_DATA_DIR/core/mailpit/api-password" 2>/dev/null')"
+  [[ -n "$mp_pw" ]] || mp_pw="$(docker exec "wonton-${SMOKE_INSTANCE}--core" sh -c 'cat "$(find / -maxdepth 6 -path "*/core/mailpit/api-password" 2>/dev/null | head -1)"' 2>/dev/null)"
   [[ -n "$mp_pw" ]] || { echo "读不到 Mailpit API 密码"; return 1; }
-  for _ in $(seq 1 20); do
+  for _ in $(seq 1 10); do
+    sleep 3
     mp_out="$(docker run --rm --network "container:wonton-${SMOKE_INSTANCE}--core" curlimages/curl:8.23.0 \
-      -sS -u "core:$mp_pw" "http://mailpit.wonton.internal:8025/api/v1/messages?limit=100" 2>/dev/null)" || { sleep 3; continue; }
+      -sS -u "core:$mp_pw" "http://mailpit.wonton.internal:8025/api/v1/messages?limit=100" 2>/dev/null)" || continue
     if ! jq -e '.messages' <<<"$mp_out" >/dev/null 2>&1; then
       echo "Mailpit API 返回不是信件列表：$(head -c 200 <<<"$mp_out")"
       return 1
     fi
-    if jq -e --arg to "$outsider" '(.messages | map(select(.To[].Address == $to)) | length) == 0' <<<"$mp_out" >/dev/null 2>&1; then
-      echo "外部地址 $outsider 被 SMTP 拒收：Mailpit 里没有这封信"
-      return 0
+    if jq -e --arg to "$outsider" '(.messages | map(select(.To[].Address == $to)) | length) > 0' <<<"$mp_out" >/dev/null 2>&1; then
+      { echo "外部地址 $outsider 的信竟然进了 Mailpit"; return 1; }
     fi
-    { echo "外部地址 $outsider 的信竟然进了 Mailpit"; return 1; }
   done
-  echo "Mailpit 查询失败，外部拒收没法断言"
-  return 1
+  echo "外部地址 $outsider 被 SMTP 拒收：30 秒窗口内 Mailpit 里始终没有这封信"
 }
 
 mcp_check() { # tools/list 有本插件工具；调只读的 auth_get_current_user，内容是用户
