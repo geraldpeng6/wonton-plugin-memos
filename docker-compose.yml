@@ -156,6 +156,8 @@ x-wonton:
       generate: { bytes: 32 }
   permissions:
     - owner.identity
+    # MCP 工具（PAT 侧车）经核心总线暴露给 Bot；规范 0.11 起只有声明 tools 权限的插件才注入 WONTON_MCP_URL。
+    - tools
     # 收件箱通知邮件（评论、提及）经核心的内部邮箱发信。
     - notify
     # Webhook 推送、链接预览、AI 语音转写都要从容器里访问外网；插件内部互访核心已放进 NO_PROXY。
