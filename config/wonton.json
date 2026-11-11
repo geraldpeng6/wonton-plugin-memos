@@ -53,6 +53,17 @@
         "disallowUserRegistration": true,
         "disallowPasswordAuth": true
       }
+    },
+    {
+      "name": "instance/settings/NOTIFICATION",
+      "notificationSetting": {
+        "email": {
+          "enabled": true,
+          "smtpHost": "${env:WONTON_SMTP_HOST}",
+          "smtpPort": 25,
+          "fromEmail": "${env:WONTON_MAIL_FROM}"
+        }
+      }
     }
   ],
   "lifecycle": [
