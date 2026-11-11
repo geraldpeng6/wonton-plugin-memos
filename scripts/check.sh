@@ -14,6 +14,8 @@ case "${1:-}" in
   *) die "用法：scripts/check.sh [--official]" ;;
 esac
 need_core_command check
+# 套件自己的命令（logs、diag）的用例：用假 docker，不碰真的 Docker。
+"$root/scripts/dev_test.sh"
 
 # 核心只在清单 spec 太新时报错，并顺带说出支持到哪一版；插件 spec 旧于核心时静默通过，模板照抄旧 spec 也不吭声。
 # 拿一个必报太新的最小清单去问核心支持到哪版（问不到就不提醒），比清单的 spec 旧就提醒一句。
@@ -40,7 +42,7 @@ PY
   if ((a1 > b1 || (a1 == b1 && a2 >= b2))); then
     return 0
   fi
-  echo "提醒：清单是 spec $plugin_spec，核心镜像 $(core_image) 支持到 $core_max；新插件建议写现行版本（字段见 https://github.com/geraldpeng6/wonton-docs/blob/main/plugin-spec.md）。" >&2
+  echo "提醒：清单是 spec $plugin_spec，核心镜像 $(core_image) 支持到 $core_max；新插件建议写现行版本（字段见 https://github.com/wontonapp/wonton-docs/blob/main/plugin-spec.md）。" >&2
 }
 
 output="$(mktemp)"
