@@ -1,6 +1,6 @@
 # 云吞插件：Memos
 
-开发流程见[插件开发指南](https://github.com/geraldpeng6/wonton-docs/blob/main/develop.md)。
+开发流程见[插件开发指南](https://github.com/wontonapp/wonton-docs/blob/main/develop.md)。
 
 Memos（[usememos.com](https://usememos.com)，MIT）是自托管的碎片笔记：速记、日记、待办和标签，全文搜索，笔记默认在
 自己家里。这个插件把它装进云吞：网页经核心网关打开，登录走核心的身份提供方（`sso: oidc`），用户的账号就是 Memos 的
