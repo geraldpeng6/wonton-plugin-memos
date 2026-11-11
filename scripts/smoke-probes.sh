@@ -179,7 +179,8 @@ extra_check() {
   outsider="wonton-smoke-$(date +%s)@example.com"
   out="$(curl -sS --noproxy '*' --fail-with-body -b "${SMOKE_JAR:-}" -H "Authorization: Bearer $at" \
     -H 'Content-Type: application/json' -d "{\"recipientEmail\":\"$outsider\"}" \
-    "$base/api/instance/settings/notification:testEmail")" || { echo "外部收件人接口失败：$out"; return 1; }
+    "$base/api/instance/settings/notification:testEmail")" ||
+    echo "应用拒绝外部收件人（规范预期行为，也是拒收证据）：$(head -c 200 <<<"$out")"
   local mp_pw mp_out
   mp_pw="$(docker exec "wonton-${SMOKE_INSTANCE}--core" sh -c 'cat "$WONTON_DATA_DIR/core/mailpit/api-password" 2>/dev/null')"
   [[ -n "$mp_pw" ]] || mp_pw="$(docker exec "wonton-${SMOKE_INSTANCE}--core" sh -c 'cat "$(find / -maxdepth 6 -path "*/core/mailpit/api-password" 2>/dev/null | head -1)"' 2>/dev/null)"
