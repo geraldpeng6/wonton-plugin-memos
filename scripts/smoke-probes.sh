@@ -107,32 +107,96 @@ data_check() {
 }
 
 # 通知邮件（extra_check，不算六项）：装好后 Memos 的 SMTP 指向核心的内部邮箱。
-# 1) 测试邮件发给主人自己的内部地址：接口报成功，核心日志里能看到投递；
-# 2) 同一接口发给外部地址：核心在 SMTP 阶段 550 拒收，应用把失败如实报出来，而不是吞掉。
+# Memos 的发信是异步的（上游 worker），testEmail 只报入队成功；核心投递成功时日志完全静默（只有失败才记），
+# 所以投递证据以主人身份读 Matrix 私聊里的 app.wonton.plugin_mail 消息为准；
+# 外部收件人核心在 SMTP 阶段 550 拒收，经 Mailpit API 断言那封信永远不出现。
 extra_check() {
-  local base at out line
+  local base at out mtok before_ts found json memos_container
+  local seen_room smtp_host smtp_port mail_from cfg outsider mp_pw mp_out
   base="$(memos_base)"
   at="$(memos_token)"
   [[ -n "$at" ]] || { echo "signin 没有 accessToken"; return 1; }
+  declare -F owner_access_token >/dev/null ||
+    { echo "需要 e2e 套件的 owner_access_token（读主人私聊拿投递证据用）"; return 1; }
+
+  # 0) 三个 SMTP 变量进了 memos 容器（compose 原名透传）
+  memos_container="$(docker ps --format '{{.Names}}' | grep -E "wonton-${SMOKE_INSTANCE}--com-usememos-memos--memos$" | head -1)"
+  [[ -n "$memos_container" ]] || { echo "找不到 memos 容器"; return 1; }
+  local smtp_host smtp_port mail_from
+  smtp_host="$(docker exec "$memos_container" printenv WONTON_SMTP_HOST)" || { echo "memos 容器没有 WONTON_SMTP_HOST"; return 1; }
+  smtp_port="$(docker exec "$memos_container" printenv WONTON_SMTP_PORT)" || { echo "memos 容器没有 WONTON_SMTP_PORT"; return 1; }
+  mail_from="$(docker exec "$memos_container" printenv WONTON_MAIL_FROM)" || { echo "memos 容器没有 WONTON_MAIL_FROM"; return 1; }
+  [[ "$smtp_host" == "smtp.wonton.internal" && "$smtp_port" == "25" &&
+    "$mail_from" == "com.usememos.memos@plugins.wonton.internal" ]] ||
+    { echo "SMTP 变量不对：host=$smtp_host port=$smtp_port from=$mail_from"; return 1; }
+  echo "SMTP 变量已注入：$smtp_host:$smtp_port from=$mail_from"
+
+  # 1) 应用的通知设置是声明式配置 apply 出来的核心注入值
+  local cfg
+  cfg="$(curl -sS --noproxy '*' --fail-with-body -b "${SMOKE_JAR:-}" -H "Authorization: Bearer $at" \
+    "$base/api/instance/settings/NOTIFICATION")" || { echo "读 NOTIFICATION 设置失败：$cfg"; return 1; }
+  jq -e '.notificationSetting.email.enabled == true and
+    .notificationSetting.email.smtpHost == "smtp.wonton.internal" and
+    .notificationSetting.email.smtpPort == 25 and
+    (.notificationSetting.email.fromEmail | endswith("@plugins.wonton.internal")) and
+    .notificationSetting.email.smtpUsername == "" and
+    .notificationSetting.email.useTls == false' <<<"$cfg" >/dev/null ||
+    { echo "通知设置不是核心注入的值：$(head -c 300 <<<"$cfg")"; return 1; }
+  echo "应用通知设置 = 核心注入的值（不认证不加密）"
+
+  # 2) 主人 Matrix 令牌 + 触发测试信（发给主人自己的内部地址；memos 异步发）
+  mtok="$(owner_access_token)" || { echo "主人 Matrix 登录失败（读私聊拿投递证据用）"; return 1; }
+  before_ts="$(date +%s000)"
   out="$(curl -sS --noproxy '*' --fail-with-body -b "${SMOKE_JAR:-}" -H "Authorization: Bearer $at" \
     -H 'Content-Type: application/json' -d '{}' \
-    "$base/api/instance/settings/notification:testEmail" 2>&1)" ||
-    { echo "测试邮件没发出去：$out"; return 1; }
-  # 发送是异步的：等核心日志里出现这封信的投递记录。
-  line=""
-  for _ in $(seq 1 15); do
-    line="$(docker logs "wonton-${SMOKE_INSTANCE:?}--core" 2>&1 | grep -i mail | tail -2)"
-    [[ -n "$line" ]] && break
-    sleep 2
+    "$base/api/instance/settings/notification:testEmail")" || { echo "测试邮件接口失败：$out"; return 1; }
+
+  # 3) 以主人身份读私聊，等 app.wonton.plugin_mail 消息（投递成功在核心日志里静默，只能以房间的消息为证）
+  found=""
+  for _ in $(seq 1 50); do
+    seen_room="$(matrix_curl -H "Authorization: Bearer $mtok" \
+      "http://tuwunel.wonton.internal:8008/_matrix/client/v3/joined_rooms" 2>/dev/null | jq -r '.joined_rooms[]' 2>/dev/null)" || { sleep 3; continue; }
+    while IFS= read -r room; do
+      [[ -n "$room" ]] || continue
+      json="$(matrix_curl -H "Authorization: Bearer $mtok" \
+        "http://tuwunel.wonton.internal:8008/_matrix/client/v3/rooms/$(printf '%s' "$room" | sed 's/!/%21/g;s/:/%3A/g')/messages?dir=b&limit=30" 2>/dev/null)" || continue
+      if jq -e --arg p "com.usememos.memos" --argjson t "$before_ts" '.chunk[] |
+          select(.type == "m.room.message" and .origin_server_ts >= $t and
+          .content["app.wonton.plugin_mail"].plugin_id == $p)' <<<"$json" >/dev/null 2>&1; then
+        found="$room"
+        break
+      fi
+    done <<<"$seen_room"
+    [[ -n "$found" ]] && break
+    sleep 3
   done
-  [[ -n "$line" ]] || { echo "核心日志里没有投递记录"; return 1; }
-  echo "核心投递：$line"
-  out="$(curl -sS --noproxy '*' -b "${SMOKE_JAR:-}" -H "Authorization: Bearer $at" \
-    -H 'Content-Type: application/json' -d '{"recipientEmail":"wonton-smoke@example.com"}' \
-    "$base/api/instance/settings/notification:testEmail" 2>&1)" &&
-    { echo "外部收件人竟然发送成功：$out"; return 1; }
-  grep -q "failed to send test email" <<<"$out" ||
-    { echo "外部收件人的报错不是发送失败：$out"; return 1; }
+  [[ -n "$found" ]] || { echo "主人的 Wonton 私聊里没有 memos 的测试信（150 秒）"; return 1; }
+  echo "核心已把测试信投进主人的 Wonton 私聊（房间 $found）"
+
+  # 4) 外部收件人：入队成功，但 Mailpit 里永远不出现（550 拒收）
+  local outsider
+  outsider="wonton-smoke-$(date +%s)@example.com"
+  out="$(curl -sS --noproxy '*' --fail-with-body -b "${SMOKE_JAR:-}" -H "Authorization: Bearer $at" \
+    -H 'Content-Type: application/json' -d "{\"recipientEmail\":\"$outsider\"}" \
+    "$base/api/instance/settings/notification:testEmail")" || { echo "外部收件人接口失败：$out"; return 1; }
+  local mp_pw mp_out
+  mp_pw="$(docker exec "wonton-${SMOKE_INSTANCE}--core" sh -c 'cat "$(find / -maxdepth 6 -path "*/core/mailpit/api-password" 2>/dev/null | head -1)"' 2>/dev/null)"
+  [[ -n "$mp_pw" ]] || { echo "读不到 Mailpit API 密码"; return 1; }
+  for _ in $(seq 1 20); do
+    mp_out="$(docker run --rm --network "container:wonton-${SMOKE_INSTANCE}--core" curlimages/curl:8.23.0 \
+      -sS -u "core:$mp_pw" "http://mailpit.wonton.internal:8025/api/v1/messages?limit=100" 2>/dev/null)" || { sleep 3; continue; }
+    if ! jq -e '.messages' <<<"$mp_out" >/dev/null 2>&1; then
+      echo "Mailpit API 返回不是信件列表：$(head -c 200 <<<"$mp_out")"
+      return 1
+    fi
+    if jq -e --arg to "$outsider" '(.messages | map(select(.To[].Address == $to)) | length) == 0' <<<"$mp_out" >/dev/null 2>&1; then
+      echo "外部地址 $outsider 被 SMTP 拒收：Mailpit 里没有这封信"
+      return 0
+    fi
+    { echo "外部地址 $outsider 的信竟然进了 Mailpit"; return 1; }
+  done
+  echo "Mailpit 查询失败，外部拒收没法断言"
+  return 1
 }
 
 mcp_check() { # tools/list 有本插件工具；调只读的 auth_get_current_user，内容是用户
