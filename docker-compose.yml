@@ -100,7 +100,7 @@ configs:
 x-wonton:
   spec: "0.11"
   id: com.usememos.memos
-  version: 0.1.3
+  version: 0.1.4
   kind: app
   title: { zh: 速记本（Memos）, en: Quick Notes (Memos) }
   description:
@@ -140,13 +140,16 @@ x-wonton:
       After a core upgrade the plugin's containers are rebuilt with the new issuer automatically; pages open as before, with nothing to reinstall.
 
       Notification emails for comments and mentions arrive in your Wonton chat; mail only reaches people in your household.
-  release_notes: { zh: "通知邮件接上了云吞的内部邮箱：有人评论、提及你或邀请你进 Space 时，通知信会出现在你的 Wonton 私聊里。", en: "Notification emails now go through Wonton's internal mailbox: comments, mentions and Space invitations arrive in your Wonton chat." }
+  release_notes: { zh: "修复自动重新登录：会话过期后打开速记本，现在能自己登录回来，不再停在报错页。", en: "Fixed automatic re-login: when a session expires, Memos signs you back in by itself instead of stopping at an error page." }
   webui:
     service: memos
     port: 5230
     sso: oidc
     oidc:
       redirect_paths: [/auth/callback]
+      # 上游换令牌用 golang.org/x/oauth2 的 AuthStyleAutoDetect：先试 client_secret_basic，出错改用
+      # client_secret_post 重试。经核心网关转发时 basic 那一跳会失败，登记成 post 才能让上游的重试被签发方接受。
+      token_endpoint_auth_method: client_secret_post
   mcp:
     service: mcp
     port: 8080
